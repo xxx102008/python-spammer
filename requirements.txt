@@ -1,0 +1,6 @@
+smtplib email
+requests
+threading
+fake-useragent
+pysocks
+python-dotenv
