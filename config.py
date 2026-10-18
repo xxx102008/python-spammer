@@ -1,12 +1,31 @@
-# מלא כאן את הפרטים שלך EMAIL_SENDER = "yourgmail@gmail.com"
-EMAIL_PASSWORD = "wirr chru kpbf djda"
+# ===== 1. מי שולח (חובה) =====
+EMAIL_SENDER   = "הכתובת_שלך@gmail.com"
+EMAIL_PASSWORD = "abcdefghijklmnop"
+
 SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
+SMTP_PORT   = 587
 
-TWILIO_SID = "your_twilio_sid"
-TWILIO_TOKEN = "your_twilio_token"
-TWILIO_FROM = "+1234567890"
+# ===== 2. תוכן ההודעה =====
+SENDER_NAME = "השם שלך"
+SUBJECT     = "הודעה קצרה"
+BODY        = """שלום,
 
-SUBJECT = "הודעה חשובה"
-BODY = "לחץ כאן לקישור: https://example.com"
-SMS_BODY = "הודעת טקסט קצרה"
+רציתי לעדכן אותך לגבי משהו.
+https://example.com
+
+בברכה"""
+
+# ===== 3. SMS - אופציונלי, ריק אם אין Twilio =====
+TWILIO_SID   = ""
+TWILIO_TOKEN = ""
+TWILIO_FROM  = ""
+SMS_BODY     = "הודעה קצרה"
+
+# ===== 4. הגדרות שליחה =====
+THREADS     = 4
+DELAY_MIN   = 0.3
+DELAY_MAX   = 1.2
+USE_PROXY   = False
+DAILY_CAP   = 450
+LOG_FILE    = "sent.log"
+FAILED_FILE = "failed.txt"
