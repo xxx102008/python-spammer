@@ -32,7 +32,6 @@ DEFAULTS = {
 
 # ---------------- טעינה ושמירה ----------------
 def from_config_file():
-    """לוקח את הפרטים שכבר מילאת ב-config.py"""
     out = {}
     try:
         spec = importlib.util.spec_from_file_location("userconfig", CONFIG_FILE)
@@ -110,6 +109,43 @@ def line(n=42):
     print("-" * n)
 
 
+# ---------------- חיבור ----------------
+def _smtp_connect(cfg, use_ssl=False, debug=False):
+    host = cfg["smtp_server"]
+    if use_ssl:
+        s = smtplib.SMTP_SSL(host, 465, timeout=30)
+        if debug:
+            s.set_debuglevel(1)
+    else:
+        s = smtplib.SMTP(host, int(cfg["smtp_port"]), timeout=30)
+        if debug:
+            s.set_debuglevel(1)
+        s.ehlo()
+        s.starttls()
+        s.ehlo()
+    s.login(cfg["sender"], cfg["password"])
+    return s
+
+
+def connect(cfg, debug=False):
+    """מנסה 587 עם TLS, ואם לא - 465 עם SSL. עד 3 סבבים."""
+    last = None
+    for round_no in range(1, 4):
+        for use_ssl in (False, True):
+            label = "SSL 465" if use_ssl else "TLS 587"
+            try:
+                return _smtp_connect(cfg, use_ssl=use_ssl, debug=debug)
+            except smtplib.SMTPAuthenticationError:
+                raise
+            except Exception as e:
+                last = e
+                if debug:
+                    print(f"    ({label}) {type(e).__name__}: {e}")
+        if round_no < 3:
+            time.sleep(2)
+    raise last
+
+
 # ---------------- שליחה ----------------
 def build_message(cfg, to_addr):
     msg = MIMEMultipart()
@@ -126,15 +162,6 @@ def build_message(cfg, to_addr):
     return msg
 
 
-def connect(cfg):
-    s = smtplib.SMTP(cfg["smtp_server"], int(cfg["smtp_port"]), timeout=30)
-    s.ehlo()
-    s.starttls()
-    s.ehlo()
-    s.login(cfg["sender"], cfg["password"])
-    return s
-
-
 def send_job(cfg, addrs):
     total = len(addrs)
     q = queue.Queue()
@@ -149,8 +176,17 @@ def send_job(cfg, addrs):
         try:
             server = connect(cfg)
         except Exception as e:
-            print(f"\n  ! כשל בחיבור: {e}")
+            print(f"\n  ! כשל בחיבור: {type(e).__name__}: {e}")
+            while True:
+                try:
+                    addr = q.get_nowait()
+                except queue.Empty:
+                    break
+                with lock:
+                    counter["bad"] += 1
+                    failed.append(addr)
             return
+
         while True:
             try:
                 addr = q.get_nowait()
@@ -207,29 +243,31 @@ def send_job(cfg, addrs):
 def screen_test(cfg):
     clear()
     print("=== בדיקת חיבור ===\n")
-    print(f"  שרת:   {cfg['smtp_server']}:{cfg['smtp_port']}")
     print(f"  משתמש: {cfg['sender'] or '(חסר!)'}")
-    print(f"  סיסמה: {'יש' if cfg['password'] else '(חסרה!)'}")
+    print(f"  סיסמה: {'יש (' + str(len(cfg['password'])) + ' תווים)' if cfg['password'] else '(חסרה!)'}")
     print()
     if not cfg["sender"] or not cfg["password"]:
         print("! קודם תמלא את החשבון (אפשרות 6).")
         pause()
         return
-    try:
-        print("מתחבר לשרת...")
-        s = smtplib.SMTP(cfg["smtp_server"], int(cfg["smtp_port"]), timeout=30)
-        s.ehlo()
-        s.starttls()
-        s.ehlo()
-        print("מתחבר לחשבון...")
-        s.login(cfg["sender"], cfg["password"])
-        s.quit()
-        print("\nהצלחה! החשבון תקין והסיסמה נכונה.")
-    except smtplib.SMTPAuthenticationError as e:
-        print(f"\n! שגיאת התחברות: {e}")
-        print("  בדוק: סיסמת אפליקציה של 16 תווים, ואימות דו-שלבי דלוק בגוגל.")
-    except Exception as e:
-        print(f"\n! שגיאה: {type(e).__name__}: {e}")
+
+    worked = []
+    for label, use_ssl in (("TLS 587", False), ("SSL 465", True)):
+        print(f"--- מנסה {label} ---")
+        try:
+            s = _smtp_connect(cfg, use_ssl=use_ssl, debug=True)
+            s.quit()
+            worked.append(label)
+            print(f"    הצליח עם {label}\n")
+        except Exception as e:
+            print(f"    נכשל עם {label}: {type(e).__name__}: {e}\n")
+
+    print("=" * 42)
+    if worked:
+        print(f"  עבד: {', '.join(worked)}")
+    else:
+        print("  שתי הדרכים נכשלו.")
+        print("  בדוק: סיסמת אפליקציה, VPN כבוי, או נסה רשת אחרת.")
     pause()
 
 
