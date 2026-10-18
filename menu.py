@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# menu.py - שולח מיילים עם תפריט. רץ ב-Termux בלי שום התקנה נוספת.
+# menu.py - שולח מיילים עם תפריט. קורא הגדרות מ-config.py ומ-settings.json
 
-import json, os, queue, random, re, smtplib, threading, time
+import importlib.util, json, os, queue, random, re, smtplib, threading, time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.header import Header
@@ -10,6 +10,7 @@ from email.utils import formataddr, formatdate, make_msgid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_FILE = os.path.join(HERE, "settings.json")
+CONFIG_FILE = os.path.join(HERE, "config.py")
 RECIPIENTS_FILE = os.path.join(HERE, "emails.txt")
 FAILED_FILE = os.path.join(HERE, "failed.txt")
 
@@ -29,18 +30,52 @@ DEFAULTS = {
 }
 
 
-# ---------------- קבצים ----------------
+# ---------------- טעינה ושמירה ----------------
+def from_config_file():
+    """לוקח את הפרטים שכבר מילאת ב-config.py"""
+    out = {}
+    try:
+        spec = importlib.util.spec_from_file_location("userconfig", CONFIG_FILE)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        for key, attr in (
+            ("sender", "EMAIL_SENDER"),
+            ("password", "EMAIL_PASSWORD"),
+            ("sender_name", "SENDER_NAME"),
+            ("subject", "SUBJECT"),
+            ("body", "BODY"),
+            ("smtp_server", "SMTP_SERVER"),
+            ("smtp_port", "SMTP_PORT"),
+        ):
+            val = getattr(mod, attr, None)
+            if val:
+                out[key] = str(val)
+        if out.get("password"):
+            out["password"] = out["password"].replace(" ", "")
+    except Exception:
+        pass
+    return out
+
+
 def load_cfg():
+    cfg = {**DEFAULTS, **from_config_file()}
     try:
         with open(SETTINGS_FILE, encoding="utf-8") as f:
-            return {**DEFAULTS, **json.load(f)}
+            saved = json.load(f)
+        for k, v in saved.items():
+            if k in DEFAULTS and v not in (None, ""):
+                cfg[k] = v
     except Exception:
-        return dict(DEFAULTS)
+        pass
+    return cfg
 
 
 def save_cfg(cfg):
-    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump({k: cfg.get(k, DEFAULTS[k]) for k in DEFAULTS}, f, ensure_ascii=False, indent=2)
+    try:
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump({k: cfg.get(k, DEFAULTS[k]) for k in DEFAULTS}, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 
 def load_recipients():
@@ -169,6 +204,35 @@ def send_job(cfg, addrs):
 
 
 # ---------------- מסכים ----------------
+def screen_test(cfg):
+    clear()
+    print("=== בדיקת חיבור ===\n")
+    print(f"  שרת:   {cfg['smtp_server']}:{cfg['smtp_port']}")
+    print(f"  משתמש: {cfg['sender'] or '(חסר!)'}")
+    print(f"  סיסמה: {'יש' if cfg['password'] else '(חסרה!)'}")
+    print()
+    if not cfg["sender"] or not cfg["password"]:
+        print("! קודם תמלא את החשבון (אפשרות 6).")
+        pause()
+        return
+    try:
+        print("מתחבר לשרת...")
+        s = smtplib.SMTP(cfg["smtp_server"], int(cfg["smtp_port"]), timeout=30)
+        s.ehlo()
+        s.starttls()
+        s.ehlo()
+        print("מתחבר לחשבון...")
+        s.login(cfg["sender"], cfg["password"])
+        s.quit()
+        print("\nהצלחה! החשבון תקין והסיסמה נכונה.")
+    except smtplib.SMTPAuthenticationError as e:
+        print(f"\n! שגיאת התחברות: {e}")
+        print("  בדוק: סיסמת אפליקציה של 16 תווים, ואימות דו-שלבי דלוק בגוגל.")
+    except Exception as e:
+        print(f"\n! שגיאה: {type(e).__name__}: {e}")
+    pause()
+
+
 def screen_account(cfg):
     clear()
     print("=== הגדרות החשבון ===\n")
@@ -192,7 +256,7 @@ def screen_message(cfg):
     print()
     if ask("לערוך? (y/n)", "y").lower().startswith("y"):
         cfg["subject"] = ask("נושא חדש", cfg["subject"])
-        print("\nתוכן חדש. לכתוב '\\n' בשביל ירידת שורה. לסיום שורה ריקה:")
+        print("\nתוכן חדש. לכתוב \\n בשביל ירידת שורה. לסיום שורה ריקה:")
         print("(אם לא תכתוב כלום - יישאר הנוכחי)")
         rows = []
         while True:
@@ -292,8 +356,8 @@ def screen_summary(cfg, addrs):
     print(f"  נושא:      {cfg['subject']}")
     print(f"  חוטים:     {cfg['threads']}")
     print(f"  השהיה:     {cfg['delay_min']}-{cfg['delay_max']} שניות")
-    est = len(addrs) * (float(cfg['delay_min']) + float(cfg['delay_max'])) / 2 / max(1, int(cfg['threads']))
     if addrs:
+        est = len(addrs) * (float(cfg["delay_min"]) + float(cfg["delay_max"])) / 2 / max(1, int(cfg["threads"]))
         print(f"  זמן משוער: כ-{int(est // 60)} דקות {int(est % 60)} שניות")
     print("\n  תוכן:")
     print("  " + cfg["body"].replace("\n", "\n  "))
@@ -305,11 +369,11 @@ def screen_summary(cfg, addrs):
 
 def do_send(cfg, addrs, limit=None):
     if not cfg["sender"] or not cfg["password"]:
-        print("\n! קודם תגדיר את החשבון (אפשרות 6).")
+        print("\n! אין חשבון מוגדר. תלחץ 6 ותמלא מייל + סיסמה.")
         pause()
         return
     if not addrs:
-        print("\n! הרשימה ריקה. תוסיף כתובות קודם (אפשרות 4).")
+        print("\n! הרשימה ריקה. תלחץ 4 ותוסיף כתובות.")
         pause()
         return
     target = addrs[:limit] if limit else addrs
@@ -330,7 +394,10 @@ def main():
         print("=" * 42)
         print("            ש ו ל ח   ה מ י י ל י ם")
         print("=" * 42)
-        print(f"  חשבון:  {cfg['sender'] or '(לא מוגדר)'}")
+        if cfg["sender"]:
+            print(f"  חשבון:  {cfg['sender']}")
+        else:
+            print("  חשבון:  ! לא מוגדר - תלחץ 6")
         print(f"  נמענים: {len(addrs)}")
         print(f"  נושא:   {cfg['subject']}")
         line()
@@ -342,6 +409,7 @@ def main():
         print("  6. הגדרות החשבון")
         print("  7. מהירות שליחה")
         print("  8. הצג סיכום")
+        print("  9. בדיקת חיבור")
         print("  0. יציאה")
         line()
         c = ask("בחר")
@@ -371,6 +439,8 @@ def main():
             screen_speed(cfg)
         elif c == "8":
             screen_summary(cfg, addrs)
+        elif c == "9":
+            screen_test(cfg)
         elif c == "0":
             save_cfg(cfg)
             save_recipients(addrs)
