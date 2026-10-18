@@ -25,15 +25,20 @@ class SocksSMTP(smtplib.SMTP):
         return super()._get_socket(host, port, timeout)
 
 
-def build_message(to_addr):
+def build_message(cfg, to_addr):
     msg = MIMEMultipart()
-    msg["From"] = formataddr((str(Header(SENDER_NAME, "utf-8")), EMAIL_SENDER))
+    if cfg.get("sender_name"):
+        msg["From"] = formataddr((str(Header(cfg["sender_name"], "utf-8")), cfg["sender"]))
+    else:
+        msg["From"] = cfg["sender"]
     msg["To"] = to_addr
-    msg["Subject"] = Header(SUBJECT, "utf-8")
+    msg["Subject"] = Header(cfg["subject"], "utf-8")
     msg["Date"] = formatdate(localtime=True)
-    msg["Message-ID"] = make_msgid()
-    msg["Reply-To"] = EMAIL_SENDER
-    msg.attach(MIMEText(BODY, "plain", "utf-8"))
+    msg["Message-ID"] = make_msgid(domain="gmail.com")
+    msg["Reply-To"] = cfg["sender"]
+    msg["List-Unsubscribe"] = f"<mailto:{cfg['sender']}?subject=unsubscribe>"
+    msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+    msg.attach(MIMEText(cfg["body"], "plain", "utf-8"))
     return msg
 
 
