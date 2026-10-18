@@ -1,6 +1,6 @@
 # ===== 1. מי שולח (חובה) =====
 EMAIL_SENDER   = "sp0mm0r999@gmail.com"
-EMAIL_PASSWORD = "wirrchrukpbfdjda"
+EMAIL_PASSWORD = "sqhmizrgbnuimbhy"
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT   = 587
