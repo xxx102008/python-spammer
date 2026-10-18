@@ -1,12 +1,67 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# menu.py - שולח מיילים עם תפריט. קורא הגדרות מ-config.py ומ-settings.json
+# menu.py - שולח מיילים עם תפריט.
 
-import importlib.util, json, os, queue, random, re, smtplib, threading, time
+import json, os, queue, random, re, smtplib, sys, threading, time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.header import Header
 from email.utils import formataddr, formatdate, make_msgid
+
+# ============ תיקון תצוגת עברית (לטרמינל בלי bidi, כמו Termux) ============
+FIX_RTL = True   # אם יש לך טרמינל שמציג עברית נכון - שנה ל-False
+
+_RTL = ((0x0590, 0x05FF), (0x0600, 0x06FF), (0x0700, 0x074F),
+        (0x0750, 0x077F), (0xFB1D, 0xFB4F), (0xFB50, 0xFDFF), (0xFE70, 0xFEFF))
+
+
+def _is_rtl(ch):
+    o = ord(ch)
+    return any(a <= o <= b for a, b in _RTL)
+
+
+def _is_ltr(ch):
+    return ch in "@._-<>=/" or (ch.isascii() and ch.isalnum())
+
+
+def _fix_line(s):
+    if not any(_is_rtl(c) for c in s):
+        return s
+    rev = s[::-1]
+    out, i, n = [], 0, len(rev)
+    while i < n:
+        if _is_ltr(rev[i]):
+            j = i
+            while j < n and _is_ltr(rev[j]):
+                j += 1
+            out.append(rev[i:j][::-1])
+            i = j
+        else:
+            out.append(rev[i])
+            i += 1
+    return "".join(out)
+
+
+def rtl_fix(s):
+    if not FIX_RTL:
+        return s
+    return "\n".join(_fix_line(ln) for ln in s.split("\n"))
+
+
+class _Out:
+    def __init__(self, s):
+        self._s = s
+
+    def write(self, t):
+        return self._s.write(rtl_fix(t))
+
+    def __getattr__(self, k):
+        return getattr(self._s, k)
+
+
+if FIX_RTL:
+    sys.stdout = _Out(sys.stdout)
+# ==========================================================================
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_FILE = os.path.join(HERE, "settings.json")
