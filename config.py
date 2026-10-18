@@ -1,5 +1,5 @@
 # מלא כאן את הפרטים שלך EMAIL_SENDER = "yourgmail@gmail.com"
-EMAIL_PASSWORD = "your_app_password"
+EMAIL_PASSWORD = "wirr chru kpbf djda"
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 
